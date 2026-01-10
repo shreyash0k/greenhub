@@ -48,7 +48,6 @@ Cron Trigger → NotificationService.checkAndNotify()
 - Uses **GraphQL API** via `@octokit/graphql`
 - Requires Personal Access Token (no scopes needed for public data)
 - Rate limit: 5000 requests/hour (authenticated)
-- **1-hour in-memory cache** to minimize API calls
 
 ### Email System
 

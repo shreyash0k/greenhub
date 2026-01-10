@@ -8,7 +8,7 @@ The services layer contains the core business logic for GreenHub. Each service i
 - **EmailService**: Sends HTML email reminders via Resend API
 - **NotificationService**: Orchestrates the check-and-notify workflow
 
-**Architecture Pattern**: Service pattern with dependency injection. Services are stateless (except for caching) and can be easily tested, extended, or replaced.
+**Architecture Pattern**: Service pattern with dependency injection. Services are stateless and can be easily tested, extended, or replaced.
 
 **Why This Exists**: Separating business logic into services makes the code:
 - **Testable**: Easy to mock dependencies
@@ -27,7 +27,6 @@ The services layer contains the core business logic for GreenHub. Each service i
 **Key Methods**:
 - `hasContributionToday(username, timezone)` - Returns boolean indicating if user contributed today
 - `getContributionCount(username, timezone)` - Returns number of contributions for today
-- `cleanCache()` - Removes expired cache entries (private)
 
 **Dependencies**:
 - `@octokit/graphql` - GitHub GraphQL client
@@ -241,18 +240,7 @@ async someMethod(): Promise<ReturnType> {
    - Gets start and end of day in the specified timezone
    - Queries GitHub with these boundaries
 
-3. **Caching**: Caches results for 1 hour to avoid redundant API calls
-   - Cache key: `${username}-${timezone}-${date}`
-   - TTL: 1 hour (3600000 ms)
-   - Automatic cleanup of expired entries
-
 ### Common Modifications
-
-**Change cache duration**:
-```typescript
-// In github.service.ts
-private readonly CACHE_TTL = 1000 * 60 * 30; // 30 minutes instead of 1 hour
-```
 
 **Add contribution details** (not just count):
 ```typescript
@@ -525,16 +513,6 @@ describe('GitHubService', () => {
     // Mock @octokit/graphql response
     const result = await service.hasContributionToday('octocat', 'America/New_York');
     expect(result).toBe(true);
-  });
-
-  it('should cache results for the same day', async () => {
-    // First call
-    await service.getContributionCount('octocat', 'America/New_York');
-
-    // Second call should use cache (verify no API call)
-    const count = await service.getContributionCount('octocat', 'America/New_York');
-
-    expect(count).toBeDefined();
   });
 });
 ```
