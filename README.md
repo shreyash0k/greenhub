@@ -7,15 +7,14 @@ Never break your GitHub contribution streak again! GreenHub sends you email remi
 ## Features
 
 - Checks your GitHub contributions daily using the GitHub GraphQL API
-- Only sends reminders if you haven't contributed yet (smart detection)
-- Caches contribution data to minimize API calls
+- Only sends reminders if you haven't contributed yet
 - Runs as a background service with scheduled cron jobs
 
 ## Prerequisites
 
 - Node.js 20+ installed
 - A GitHub account
-- A Resend account (for sending emails - free tier: 3,000 emails/month)
+- A Resend account (for sending emails)
 
 ## Setup Instructions
 
@@ -37,7 +36,7 @@ npm install
 
 ### 3. Create Resend API Key
 
-Resend is a modern email API that makes sending emails simple and reliable.
+Resend is an email service
 
 1. Go to [Resend](https://resend.com) and create a free account
 2. Navigate to [API Keys](https://resend.com/api-keys)
@@ -114,9 +113,7 @@ pm2 save
 
 1. **Scheduler**: Cron jobs run daily
 2. **GitHub Check**: When triggered, the service queries GitHub's GraphQL API to check if you've made any contributions today
-3. **Smart Notification**: If you haven't contributed, it sends a reminder email
-4. **Caching**: Contribution data is cached for 1 hour to minimize API calls
-5. **Logging**: All actions are logged for monitoring and debugging
+3. **Notification**: If you haven't contributed, it sends a reminder email
 
 ## Project Structure
 
@@ -188,14 +185,3 @@ This is currently a personal project, but suggestions and improvements are welco
 ## License
 
 MIT License - Feel free to use and modify for your own purposes.
-
-## Support
-
-If you encounter any issues:
-
-1. Check the logs for error messages
-2. Verify all environment variables are set correctly
-3. Ensure GitHub token and Resend API key are valid
-4. Review the Troubleshooting section above
-
-Happy coding and keep that contribution graph green!
