@@ -21,7 +21,7 @@ Never break your GitHub contribution streak again! GreenHub sends you email remi
 ### 1. Clone and Install
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/shreyash0k/greenhub
 cd greenhub
 npm install
 ```
@@ -50,20 +50,7 @@ Resend is an email service
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your values:
-
-```env
-GITHUB_TOKEN=ghp_your_actual_github_token
-GITHUB_USERNAME=your-github-username
-
-RESEND_API_KEY=re_your_api_key_here
-EMAIL_FROM=GreenHub <onboarding@resend.dev>
-EMAIL_TO=your-email@gmail.com
-
-TIMEZONE=America/New_York
-NODE_ENV=production
-LOG_LEVEL=info
-```
+Edit `.env` and fill in your values
 
 ### 5. Build and Run
 
@@ -115,29 +102,6 @@ pm2 save
 2. **GitHub Check**: When triggered, the service queries GitHub's GraphQL API to check if you've made any contributions today
 3. **Notification**: If you haven't contributed, it sends a reminder email
 
-## Project Structure
-
-```
-greenhub/
-├── src/
-│   ├── services/
-│   │   ├── github.service.ts       # GitHub GraphQL API integration
-│   │   ├── email.service.ts        # Email sending with Resend
-│   │   └── notification.service.ts # Orchestration logic
-│   ├── scheduler/
-│   │   └── cron.ts                 # Cron job scheduling
-│   ├── utils/
-│   │   └── logger.ts               # Winston logger configuration
-│   ├── types/
-│   │   └── index.ts                # TypeScript type definitions
-│   └── index.ts                    # Application entry point
-├── .env                            # Your secrets (gitignored)
-├── .env.example                    # Template for environment variables
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
 ## Customization
 
 ### Change Reminder Times
@@ -164,19 +128,6 @@ Valid timezone values follow the IANA timezone database (e.g., `America/New_York
 ### Customize Email Template
 
 Edit the `generateEmailTemplate()` method in [src/services/email.service.ts](src/services/email.service.ts:66).
-
-## Environment Variables Reference
-
-| Variable          | Required | Description                        | Example                            |
-| ----------------- | -------- | ---------------------------------- | ---------------------------------- |
-| `GITHUB_TOKEN`    | Yes      | GitHub Personal Access Token       | `ghp_abc123...`                    |
-| `GITHUB_USERNAME` | Yes      | Your GitHub username               | `octocat`                          |
-| `RESEND_API_KEY`  | Yes      | Resend API key                     | `re_abc123...`                     |
-| `EMAIL_FROM`      | Yes      | Sender email address               | `GreenHub <onboarding@resend.dev>` |
-| `EMAIL_TO`        | Yes      | Email address to receive reminders | `you@gmail.com`                    |
-| `TIMEZONE`        | No       | IANA timezone for scheduling       | `America/New_York`                 |
-| `NODE_ENV`        | No       | Environment mode                   | `production` or `development`      |
-| `LOG_LEVEL`       | No       | Logging verbosity                  | `info`, `debug`, `error`           |
 
 ## Contributing
 
