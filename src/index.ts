@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     logger.info('GreenHub is now running', {
       activeJobs: scheduler.getActiveJobCount(),
       timezone: config.timezone,
-      reminderTimes: ['8:00 PM', '11:00 PM']
+      reminderTimes: ['2:00 PM', '6:00 PM', '10:00 PM']
     });
 
     logger.info('Press Ctrl+C to stop the service');
