@@ -8,19 +8,17 @@ export class ReminderScheduler {
   constructor(
     private notificationService: NotificationService,
     private timezone: string = 'America/New_York'
-  ) {}
+  ) { }
 
   /**
-   * Start the scheduler with default times (2 PM, 6 PM, and 10 PM)
+   * Start the scheduler with default times (9 PM)
    */
   start(): void {
-    this.scheduleReminder('14:00', '2 PM EST');
-    this.scheduleReminder('18:00', '6 PM EST');
-    this.scheduleReminder('22:00', '10 PM EST');
+    this.scheduleReminder('21:00', '9 PM EST');
 
     logger.info('Reminder scheduler started', {
       timezone: this.timezone,
-      reminderTimes: ['2:00 PM', '6:00 PM', '10:00 PM']
+      reminderTimes: ['9 PM EST']
     });
   }
 
