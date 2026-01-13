@@ -5,6 +5,7 @@
 The scheduler module handles time-based job execution for GreenHub. It uses `node-cron` to schedule reminder checks at specific times (2 PM, 6 PM, and 10 PM EST by default).
 
 **Why This Exists**: Separating scheduling logic from business logic makes it easy to:
+
 - Add, modify, or remove scheduled tasks
 - Test scheduling behavior independently
 - Support different timezones
@@ -17,18 +18,21 @@ The scheduler module handles time-based job execution for GreenHub. It uses `nod
 ## Files and Responsibilities
 
 ### cron.ts (~130 lines)
+
 **Class**: `ReminderScheduler`
 
 **Purpose**: Manage cron jobs that trigger contribution checks at scheduled times.
 
 **Key Methods**:
-- `start()` - Initialize scheduler with default reminder times (2 PM, 6 PM, and 10 PM)
+
+- `start()` - Initialize scheduler with default reminder times (9 PM)
 - `stop()` - Stop all scheduled jobs (cleanup)
 - `scheduleReminder(time, label)` - Schedule a specific reminder time (private)
 - `scheduleCustom(cronExpression, label)` - Schedule with custom cron expression
 - `getActiveJobCount()` - Get number of active cron jobs
 
 **Dependencies**:
+
 - `node-cron` - Cron job library
 - `NotificationService` - Service to execute on triggers
 - Logger from `../utils/logger.js`
@@ -43,9 +47,12 @@ The scheduler module handles time-based job execution for GreenHub. It uses `nod
 
 ```typescript
 // 1. Create scheduler with notification service and timezone
-const scheduler = new ReminderScheduler(notificationService, 'America/New_York');
+const scheduler = new ReminderScheduler(
+  notificationService,
+  "America/New_York"
+);
 
-// 2. Start scheduler (creates cron jobs for 2 PM, 6 PM, and 10 PM)
+// 2. Start scheduler (creates cron jobs for 9 PM)
 scheduler.start();
 
 // Jobs are now running and will trigger at scheduled times
@@ -81,6 +88,7 @@ node-cron uses the standard cron format:
 ```
 
 **Examples**:
+
 - `0 14 * * *` = 2:00 PM every day (14:00)
 - `0 18 * * *` = 6:00 PM every day (18:00)
 - `0 22 * * *` = 10:00 PM every day (22:00)
@@ -143,13 +151,13 @@ start(): void {
 
 ```typescript
 // After starting the scheduler
-scheduler.scheduleCustom('0 9 * * 1', 'Weekly Summary');
+scheduler.scheduleCustom("0 9 * * 1", "Weekly Summary");
 ```
 
 **Example**: Run every hour during work hours (9 AM - 5 PM)
 
 ```typescript
-scheduler.scheduleCustom('0 9-17 * * *', 'Hourly Reminder');
+scheduler.scheduleCustom("0 9-17 * * *", "Hourly Reminder");
 ```
 
 ---
@@ -157,6 +165,7 @@ scheduler.scheduleCustom('0 9-17 * * *', 'Hourly Reminder');
 ## scheduleReminder() Deep Dive
 
 ### Location
+
 `src/scheduler/cron.ts:41-85`
 
 ### How It Works
@@ -203,13 +212,13 @@ async () => {
   try {
     await this.notificationService.checkAndNotify();
   } catch (error) {
-    logger.error('Error during scheduled reminder', {
+    logger.error("Error during scheduled reminder", {
       time: label,
-      error: error instanceof Error ? error.message : 'Unknown error',
-      stack: error instanceof Error ? error.stack : undefined
+      error: error instanceof Error ? error.message : "Unknown error",
+      stack: error instanceof Error ? error.stack : undefined,
     });
   }
-}
+};
 ```
 
 **Important**: Errors don't stop the scheduler. The job will run again at the next scheduled time.
@@ -219,36 +228,42 @@ async () => {
 ## scheduleCustom() Usage
 
 ### Location
+
 `src/scheduler/cron.ts:90-110`
 
 ### Purpose
+
 Allow scheduling with custom cron expressions beyond simple daily times.
 
 ### Example Use Cases
 
 **1. Testing (trigger in 1 minute)**:
+
 ```typescript
 const now = new Date();
 const nextMinute = new Date(now.getTime() + 60000);
 const cronExpr = `${nextMinute.getMinutes()} ${nextMinute.getHours()} * * *`;
-scheduler.scheduleCustom(cronExpr, 'Test Notification');
+scheduler.scheduleCustom(cronExpr, "Test Notification");
 ```
 
 **2. Weekend-only reminders**:
+
 ```typescript
 // Saturday and Sunday at 2 PM
-scheduler.scheduleCustom('0 14 * * 0,6', 'Weekend Reminder');
+scheduler.scheduleCustom("0 14 * * 0,6", "Weekend Reminder");
 ```
 
 **3. Workday reminders**:
+
 ```typescript
 // Monday-Friday at 9 AM and 6 PM
-scheduler.scheduleCustom('0 9,18 * * 1-5', 'Workday Reminder');
+scheduler.scheduleCustom("0 9,18 * * 1-5", "Workday Reminder");
 ```
 
 **4. Monthly summary** (first day of month):
+
 ```typescript
-scheduler.scheduleCustom('0 9 1 * *', 'Monthly Summary');
+scheduler.scheduleCustom("0 9 1 * *", "Monthly Summary");
 ```
 
 ---
@@ -260,9 +275,10 @@ scheduler.scheduleCustom('0 9 1 * *', 'Monthly Summary');
 The `timezone` option in node-cron ensures cron times are interpreted in the specified timezone, not the server's local timezone.
 
 **Example**:
+
 ```typescript
 // Server is in UTC, but user wants EST times
-const scheduler = new ReminderScheduler(service, 'America/New_York');
+const scheduler = new ReminderScheduler(service, "America/New_York");
 
 // This will trigger at 8 PM EST, regardless of server timezone
 scheduler.start();
@@ -295,7 +311,7 @@ class ReminderScheduler {
     // Restart with new timezone
     this.start();
 
-    logger.info('Timezone updated', { newTimezone });
+    logger.info("Timezone updated", { newTimezone });
   }
 }
 ```
@@ -308,11 +324,14 @@ class ReminderScheduler {
 
 ```typescript
 // In index.ts
-const scheduler = new ReminderScheduler(notificationService, 'America/New_York');
+const scheduler = new ReminderScheduler(
+  notificationService,
+  "America/New_York"
+);
 scheduler.start();
 
-logger.info('Scheduler started', {
-  activeJobs: scheduler.getActiveJobCount()
+logger.info("Scheduler started", {
+  activeJobs: scheduler.getActiveJobCount(),
 });
 ```
 
@@ -322,9 +341,9 @@ Called during graceful shutdown:
 
 ```typescript
 // In index.ts setupGracefulShutdown()
-process.on('SIGINT', () => {
-  logger.info('Shutting down...');
-  scheduler.stop();  // Stop all cron jobs
+process.on("SIGINT", () => {
+  logger.info("Shutting down...");
+  scheduler.stop(); // Stop all cron jobs
   process.exit(0);
 });
 ```
@@ -348,10 +367,10 @@ logger.info(`Currently running ${jobCount} scheduled jobs`);
 // Temporarily modify start() to trigger in 2 minutes
 const now = new Date();
 const testTime = new Date(now.getTime() + 2 * 60000);
-const hour = testTime.getHours().toString().padStart(2, '0');
-const minute = testTime.getMinutes().toString().padStart(2, '0');
+const hour = testTime.getHours().toString().padStart(2, "0");
+const minute = testTime.getMinutes().toString().padStart(2, "0");
 
-this.scheduleReminder(`${hour}:${minute}`, 'Test Reminder');
+this.scheduleReminder(`${hour}:${minute}`, "Test Reminder");
 ```
 
 **Option 2**: Use scheduleCustom with immediate trigger
@@ -360,48 +379,48 @@ this.scheduleReminder(`${hour}:${minute}`, 'Test Reminder');
 // Schedule for next minute
 const now = new Date();
 const nextMin = now.getMinutes() + 1;
-scheduler.scheduleCustom(`${nextMin} * * * *`, 'Immediate Test');
+scheduler.scheduleCustom(`${nextMin} * * * *`, "Immediate Test");
 ```
 
 ### Unit Testing
 
 ```typescript
-import { ReminderScheduler } from './cron';
+import { ReminderScheduler } from "./cron";
 
-describe('ReminderScheduler', () => {
+describe("ReminderScheduler", () => {
   let scheduler: ReminderScheduler;
   let mockNotificationService: any;
 
   beforeEach(() => {
     mockNotificationService = {
-      checkAndNotify: jest.fn().mockResolvedValue({ sent: true })
+      checkAndNotify: jest.fn().mockResolvedValue({ sent: true }),
     };
 
     scheduler = new ReminderScheduler(
       mockNotificationService,
-      'America/New_York'
+      "America/New_York"
     );
   });
 
   afterEach(() => {
-    scheduler.stop();  // Clean up
+    scheduler.stop(); // Clean up
   });
 
-  it('should start with correct number of jobs', () => {
+  it("should start with correct number of jobs", () => {
     scheduler.start();
-    expect(scheduler.getActiveJobCount()).toBe(3);  // 2 PM, 6 PM, and 10 PM
+    expect(scheduler.getActiveJobCount()).toBe(3); // 2 PM, 6 PM, and 10 PM
   });
 
-  it('should stop all jobs', () => {
+  it("should stop all jobs", () => {
     scheduler.start();
     scheduler.stop();
     expect(scheduler.getActiveJobCount()).toBe(0);
   });
 
-  it('should schedule custom job', () => {
+  it("should schedule custom job", () => {
     scheduler.start();
-    scheduler.scheduleCustom('0 15 * * *', 'Custom');
-    expect(scheduler.getActiveJobCount()).toBe(4);  // 3 default + 1 custom
+    scheduler.scheduleCustom("0 15 * * *", "Custom");
+    expect(scheduler.getActiveJobCount()).toBe(4); // 3 default + 1 custom
   });
 });
 ```
@@ -411,14 +430,14 @@ describe('ReminderScheduler', () => {
 Test that cron jobs actually trigger:
 
 ```typescript
-it('should trigger notification on schedule', async () => {
+it("should trigger notification on schedule", async () => {
   // Schedule for 1 second from now (using setTimeout as alternative)
   const mockService = {
-    checkAndNotify: jest.fn().mockResolvedValue({ sent: true })
+    checkAndNotify: jest.fn().mockResolvedValue({ sent: true }),
   };
 
   // Use a mock cron library or test with actual setTimeout
-  await new Promise(resolve => setTimeout(resolve, 1100));
+  await new Promise((resolve) => setTimeout(resolve, 1100));
 
   expect(mockService.checkAndNotify).toHaveBeenCalled();
 });
@@ -448,9 +467,9 @@ Support users in different timezones:
 ```typescript
 class ReminderScheduler {
   startForUsers(users: Array<{ timezone: string; times: string[] }>): void {
-    users.forEach(user => {
-      user.times.forEach(time => {
-        const [hour, minute] = time.split(':');
+    users.forEach((user) => {
+      user.times.forEach((time) => {
+        const [hour, minute] = time.split(":");
         const cronExpr = `${minute} ${hour} * * *`;
 
         cron.schedule(
@@ -473,7 +492,7 @@ class ReminderScheduler {
   private jobMap = new Map<string, cron.ScheduledTask>();
 
   addReminder(id: string, time: string, timezone: string): void {
-    const [hour, minute] = time.split(':');
+    const [hour, minute] = time.split(":");
     const job = cron.schedule(
       `${minute} ${hour} * * *`,
       () => this.notificationService.checkAndNotify(),
@@ -500,26 +519,29 @@ class ReminderScheduler {
 ### Jobs Not Triggering
 
 **Check 1**: Verify timezone
+
 ```typescript
-logger.info('Scheduler config', {
+logger.info("Scheduler config", {
   timezone: this.timezone,
   serverTime: new Date().toISOString(),
-  serverTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  serverTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 });
 ```
 
 **Check 2**: Verify cron expression
+
 ```typescript
 // Use a cron validator or test with: https://crontab.guru
 const cronExpression = `${minute} ${hour} * * *`;
-logger.debug('Cron expression', { cronExpression });
+logger.debug("Cron expression", { cronExpression });
 ```
 
 **Check 3**: Ensure scheduler is running
+
 ```typescript
 const jobCount = scheduler.getActiveJobCount();
 if (jobCount === 0) {
-  logger.warn('No active jobs! Scheduler may not have started.');
+  logger.warn("No active jobs! Scheduler may not have started.");
 }
 ```
 
@@ -528,6 +550,7 @@ if (jobCount === 0) {
 **Cause**: Multiple scheduler instances or duplicate jobs
 
 **Fix**: Ensure only one scheduler instance and call `start()` once:
+
 ```typescript
 // Good - single instance
 const scheduler = new ReminderScheduler(service, timezone);
@@ -537,7 +560,7 @@ scheduler.start();
 const scheduler1 = new ReminderScheduler(service, timezone);
 const scheduler2 = new ReminderScheduler(service, timezone);
 scheduler1.start();
-scheduler2.start();  // Creates duplicate jobs!
+scheduler2.start(); // Creates duplicate jobs!
 ```
 
 ### Memory Leaks
@@ -545,9 +568,10 @@ scheduler2.start();  // Creates duplicate jobs!
 **Cause**: Not calling `stop()` on shutdown
 
 **Fix**: Always stop scheduler in shutdown handler:
+
 ```typescript
-process.on('SIGINT', () => {
-  scheduler.stop();  // Important!
+process.on("SIGINT", () => {
+  scheduler.stop(); // Important!
   process.exit(0);
 });
 ```
@@ -569,35 +593,35 @@ When migrating to multi-user web app, replace node-cron with BullMQ:
 
 ```typescript
 // Old (node-cron)
-const scheduler = new ReminderScheduler(service, 'America/New_York');
+const scheduler = new ReminderScheduler(service, "America/New_York");
 scheduler.start();
 
 // New (BullMQ)
-import { Queue, Worker } from 'bullmq';
+import { Queue, Worker } from "bullmq";
 
-const reminderQueue = new Queue('reminders', {
-  connection: { host: 'localhost', port: 6379 }
+const reminderQueue = new Queue("reminders", {
+  connection: { host: "localhost", port: 6379 },
 });
 
 // Schedule jobs for each user
-users.forEach(user => {
-  user.reminderTimes.forEach(time => {
-    const [hour, minute] = time.split(':');
+users.forEach((user) => {
+  user.reminderTimes.forEach((time) => {
+    const [hour, minute] = time.split(":");
     reminderQueue.add(
-      'check-contribution',
+      "check-contribution",
       { userId: user.id },
       {
         repeat: {
           pattern: `${minute} ${hour} * * *`,
-          tz: user.timezone
-        }
+          tz: user.timezone,
+        },
       }
     );
   });
 });
 
 // Worker to process jobs
-const worker = new Worker('reminders', async (job) => {
+const worker = new Worker("reminders", async (job) => {
   const user = await fetchUser(job.data.userId);
   await notificationService.checkAndNotify(user);
 });
