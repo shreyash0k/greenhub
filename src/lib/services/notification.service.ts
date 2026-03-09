@@ -1,8 +1,7 @@
 import { prisma } from "../prisma"
 import { hasContributionToday } from "./github.service"
 import { sendReminder } from "./email.service"
-import { toZonedTime } from "date-fns-tz"
-import { startOfDay } from "date-fns"
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz"
 
 interface UserForNotification {
   id: string
@@ -28,32 +27,33 @@ export async function checkAndNotifyUser(
       user.timezone
     )
 
+    const dateKey = formatInTimeZone(new Date(), user.timezone, "yyyy-MM-dd")
+
     if (contributed) {
-      await prisma.notificationLog.create({
-        data: {
-          userId: user.id,
-          date: new Date(),
-          hadContribution: true,
-          emailSent: false,
-        },
+      await createNotificationLog({
+        userId: user.id,
+        dateKey,
+        hadContribution: true,
+        emailSent: false,
       })
       return { sent: false, reason: "Already contributed today" }
     }
 
     const emailSent = await sendReminder(user.email, user.githubUsername)
 
-    await prisma.notificationLog.create({
-      data: {
+    if (emailSent) {
+      await createNotificationLog({
         userId: user.id,
-        date: new Date(),
+        dateKey,
         hadContribution: false,
-        emailSent,
-      },
-    })
+        emailSent: true,
+      })
+    }
+    // When email fails, no log is created so the user will be retried on the next cron run
 
     return {
       sent: emailSent,
-      reason: emailSent ? undefined : "Email send failed",
+      reason: emailSent ? undefined : "Email send failed (will retry)",
     }
   } catch (error) {
     console.error(
@@ -61,6 +61,39 @@ export async function checkAndNotifyUser(
       error
     )
     return { sent: false, reason: "Exception during check" }
+  }
+}
+
+async function createNotificationLog(data: {
+  userId: string
+  dateKey: string
+  hadContribution: boolean
+  emailSent: boolean
+}) {
+  try {
+    await prisma.notificationLog.create({
+      data: {
+        userId: data.userId,
+        date: new Date(),
+        dateKey: data.dateKey,
+        hadContribution: data.hadContribution,
+        emailSent: data.emailSent,
+      },
+    })
+  } catch (error: unknown) {
+    const isPrismaUniqueViolation =
+      error != null &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code: string }).code === "P2002"
+
+    if (isPrismaUniqueViolation) {
+      console.log(
+        `Duplicate notification log skipped for user ${data.userId} on ${data.dateKey}`
+      )
+      return
+    }
+    throw error
   }
 }
 
@@ -99,9 +132,10 @@ export async function processAllDueUsers(options?: {
 }
 
 function isReminderDue(timezone: string, reminderTimes: string[]): boolean {
-  const now = new Date()
-  const zonedNow = toZonedTime(now, timezone)
-  const currentHour = zonedNow.getHours()
+  const currentHour = parseInt(
+    formatInTimeZone(new Date(), timezone, "HH"),
+    10
+  )
 
   return reminderTimes.some((time) => {
     const [hourStr] = time.split(":")
@@ -114,13 +148,17 @@ async function hasNotificationToday(
   timezone: string
 ): Promise<boolean> {
   const now = new Date()
-  const zonedNow = toZonedTime(now, timezone)
-  const todayStart = startOfDay(zonedNow)
+  const todayStr = formatInTimeZone(now, timezone, "yyyy-MM-dd")
+  const [y, m, d] = todayStr.split("-").map(Number)
+  const todayStartUtc = fromZonedTime(
+    new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)),
+    timezone
+  )
 
   const existing = await prisma.notificationLog.findFirst({
     where: {
       userId,
-      createdAt: { gte: todayStart },
+      createdAt: { gte: todayStartUtc },
     },
   })
 

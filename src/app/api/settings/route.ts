@@ -51,6 +51,12 @@ export async function PATCH(request: Request) {
     data.reminderEnabled = reminderEnabled
 
   if (Array.isArray(reminderTimes)) {
+    if (reminderTimes.length === 0) {
+      return NextResponse.json(
+        { error: "At least one reminder time is required" },
+        { status: 400 }
+      )
+    }
     if (reminderTimes.length > MAX_REMINDER_TIMES) {
       return NextResponse.json(
         { error: `Maximum ${MAX_REMINDER_TIMES} reminder times allowed` },
@@ -63,7 +69,8 @@ export async function PATCH(request: Request) {
         { status: 400 }
       )
     }
-    data.reminderTimes = reminderTimes
+    const uniqueTimes = [...new Set(reminderTimes)]
+    data.reminderTimes = uniqueTimes
   }
 
   const user = await prisma.user.update({

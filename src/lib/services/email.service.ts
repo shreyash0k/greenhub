@@ -33,8 +33,17 @@ export async function sendReminder(
   }
 }
 
+function getAppUrl(): string {
+  return (
+    process.env.AUTH_URL ||
+    process.env.NEXTAUTH_URL ||
+    "https://greenhub-eosin.vercel.app"
+  )
+}
+
 function generateEmailTemplate(githubUsername: string): string {
   const profileUrl = `https://github.com/${githubUsername}`
+  const settingsUrl = `${getAppUrl()}/settings`
 
   return `
     <!DOCTYPE html>
@@ -66,6 +75,11 @@ function generateEmailTemplate(githubUsername: string): string {
       </div>
       <div style="text-align: center; padding-top: 20px; border-top: 1px solid #e1e4e8; color: #8b949e; font-size: 12px;">
         <p>GreenHub - Your GitHub Contribution Reminder</p>
+        <p style="margin-top: 8px;">
+          <a href="${settingsUrl}" style="color: #8b949e; text-decoration: underline;">
+            Manage reminder preferences or unsubscribe
+          </a>
+        </p>
       </div>
     </body>
     </html>

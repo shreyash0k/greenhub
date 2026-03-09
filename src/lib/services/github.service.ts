@@ -1,6 +1,5 @@
 import { graphql } from "@octokit/graphql"
-import { startOfDay, endOfDay } from "date-fns"
-import { toZonedTime } from "date-fns-tz"
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz"
 
 interface ContributionsResponse {
   user: {
@@ -12,6 +11,22 @@ interface ContributionsResponse {
   }
 }
 
+function getDayBoundsUtc(timezone: string): { start: Date; end: Date } {
+  const now = new Date()
+  const todayStr = formatInTimeZone(now, timezone, "yyyy-MM-dd")
+  const [y, m, d] = todayStr.split("-").map(Number)
+
+  const start = fromZonedTime(
+    new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)),
+    timezone
+  )
+  const end = fromZonedTime(
+    new Date(Date.UTC(y, m - 1, d, 23, 59, 59, 999)),
+    timezone
+  )
+  return { start, end }
+}
+
 export async function getContributionCount(
   token: string,
   username: string,
@@ -21,10 +36,7 @@ export async function getContributionCount(
     headers: { authorization: `token ${token}` },
   })
 
-  const now = new Date()
-  const zonedDate = toZonedTime(now, timezone)
-  const dayStart = startOfDay(zonedDate)
-  const dayEnd = endOfDay(zonedDate)
+  const { start, end } = getDayBoundsUtc(timezone)
 
   const query = `
     query($username: String!, $from: DateTime!, $to: DateTime!) {
@@ -40,8 +52,8 @@ export async function getContributionCount(
 
   const response = await graphqlWithAuth<ContributionsResponse>(query, {
     username,
-    from: dayStart.toISOString(),
-    to: dayEnd.toISOString(),
+    from: start.toISOString(),
+    to: end.toISOString(),
   })
 
   return response.user.contributionsCollection.contributionCalendar.totalContributions

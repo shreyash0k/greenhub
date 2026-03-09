@@ -30,7 +30,7 @@ GreenHub is a **multi-user web application** built with Next.js that monitors Gi
 | Service | File | Purpose |
 | ----------------------- | ------------------------------------------- | --------------------------------------------------- |
 | **GitHub Service** | `src/lib/services/github.service.ts` | Queries GitHub GraphQL API for contributions |
-| **Email Service** | `src/lib/services/email.service.ts` | Sends HTML emails via Resend API |
+| **Email Service** | `src/lib/services/email.service.ts` | Sends HTML emails via Resend API (includes unsubscribe link) |
 | **Notification Service** | `src/lib/services/notification.service.ts` | Orchestrates check-and-notify flow for all users |
 | **Auth Config** | `src/lib/auth.ts` | NextAuth config with GitHub provider + Prisma adapter |
 | **Prisma Client** | `src/lib/prisma.ts` | Singleton Prisma client instance |
@@ -44,13 +44,15 @@ processAllDueUsers({ skipTimeCheck })
  ↓ (for each user with reminders enabled)
  ↓ skipTimeCheck=true (Vercel): check all users
  ↓ skipTimeCheck=false (worker): only users whose reminder hour matches
+ ↓ hasNotificationToday() → skip if already logged today
 checkAndNotifyUser(user)
  ↓
 hasContributionToday(token, username, timezone)  ← GitHub GraphQL API
+ ↓ (if contributed) → log hadContribution=true, done
  ↓ (if no contributions)
 sendReminder(email, username)  ← Resend API
- ↓
-NotificationLog entry created in database
+ ↓ (if email sent) → log emailSent=true, done
+ ↓ (if email failed) → NO log created, will retry next cron run
 ```
 
 ## Key Technical Details
@@ -61,7 +63,9 @@ NotificationLog entry created in database
 - User's GitHub OAuth access token stored in the `Account` table
 - Token is used to query the GitHub GraphQL API for contribution data
 - GitHub username is captured on every sign-in via the `signIn` event
+- Dashboard also refreshes the username via GitHub REST API on each page load (handles renamed accounts between sign-ins)
 - Middleware protects `/dashboard` and `/settings` routes
+- Dashboard differentiates between token errors (401/403 → asks user to re-authenticate) and transient API failures
 
 ### Database Schema
 
@@ -69,6 +73,9 @@ NotificationLog entry created in database
 - **Account** — OAuth tokens (managed by Auth.js Prisma adapter)
 - **Session** — active sessions (managed by Auth.js)
 - **NotificationLog** — tracks each check (contribution status + email sent)
+  - `dateKey` (nullable String) stores `"YYYY-MM-DD"` in the user's timezone
+  - `@@unique([userId, dateKey])` prevents duplicate notifications per user per day at the database level (race condition protection)
+  - Only successful outcomes are logged (contributed, or email sent); failed email sends leave no log so the user is retried
 
 ### Services Architecture
 
@@ -82,6 +89,25 @@ export async function processAllDueUsers(options?: { skipTimeCheck?: boolean }):
 ```
 
 Services use **relative imports** for portability between Next.js and the standalone worker.
+
+### Timezone Handling
+
+All timezone conversions use `date-fns-tz` v3. The key functions are:
+
+- **`formatInTimeZone(date, timezone, format)`** — Formats a real UTC Date in the target timezone. Used to get the current hour or date string in a user's timezone.
+- **`fromZonedTime(fakeDate, timezone)`** — Converts a Date whose UTC slots represent a local time back to real UTC. Used to compute actual UTC boundaries for database queries and API calls.
+
+**Critical pattern** for computing day boundaries in a user's timezone:
+
+```typescript
+import { fromZonedTime, formatInTimeZone } from "date-fns-tz"
+
+const todayStr = formatInTimeZone(new Date(), timezone, "yyyy-MM-dd")
+const [y, m, d] = todayStr.split("-").map(Number)
+const dayStartUtc = fromZonedTime(new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)), timezone)
+```
+
+**Browser-side timezone detection** is used in the settings form to suggest the user's actual timezone via `Intl.DateTimeFormat().resolvedOptions().timeZone`.
 
 ### Reminder Scheduling Logic
 
@@ -98,6 +124,12 @@ Two execution modes with different time-matching behavior:
    - Check if current hour in user's timezone matches any `reminderTimes` hour
    - Check if a `NotificationLog` entry already exists for today (prevents duplicates)
    - If due and not already notified: check GitHub contributions and send email if needed
+
+**Retry Behavior**:
+- If email sending fails, no `NotificationLog` is created, so the user will be retried on the next cron run
+- If GitHub API check fails (exception), no log is created, allowing retry
+- If user has already contributed or email was sent successfully, a log is created with a `dateKey` preventing further checks that day
+- The `@@unique([userId, dateKey])` constraint on `NotificationLog` provides database-level deduplication (guards against race conditions if multiple cron processes run simultaneously)
 
 ## File Structure
 
@@ -205,7 +237,13 @@ try {
   **Do**: Always verify the Bearer token; fail with 500 if `CRON_SECRET` is unset
 
 - **Don't**: Accept arbitrary strings for timezone or reminderTimes in the settings API
-  **Do**: Validate timezone against `VALID_TIMEZONES`, enforce `HH:MM` format, cap array length
+  **Do**: Validate timezone against `VALID_TIMEZONES`, enforce `HH:MM` format, cap array length, reject empty arrays, deduplicate times
+
+- **Don't**: Use `toZonedTime()` + `startOfDay()`/`endOfDay()` + `toISOString()` for timezone conversions (the "fake Date" from `toZonedTime` produces wrong UTC when serialized)
+  **Do**: Use `formatInTimeZone()` to get local date/time strings, then `fromZonedTime()` to convert back to real UTC
+
+- **Don't**: Create a `NotificationLog` when the email send fails (blocks retry for the rest of the day)
+  **Do**: Only log successful outcomes (user contributed or email sent); leave no log on failure so the next cron run retries
 
 ## Common Tasks for AI Agents
 
@@ -229,9 +267,10 @@ try {
 
 The cron logic lives in `src/lib/services/notification.service.ts`:
 - `processAllDueUsers(options?)` — entry point; `skipTimeCheck: true` bypasses hour-matching (used by Vercel cron)
-- `isReminderDue()` — checks if current hour in user's timezone matches a reminder time (used by standalone worker)
-- `hasNotificationToday()` — prevents duplicate notifications
-- `checkAndNotifyUser()` — checks contributions and sends email
+- `isReminderDue()` — checks if current hour in user's timezone matches a reminder time (used by standalone worker); uses `formatInTimeZone` for correct hour extraction
+- `hasNotificationToday()` — prevents duplicate notifications; uses `fromZonedTime` to compute correct UTC day boundary
+- `checkAndNotifyUser()` — checks contributions and sends email; only logs successful outcomes
+- `createNotificationLog()` — wraps log creation with unique constraint violation handling (catches Prisma `P2002` errors for race condition safety)
 
 ## Development Commands
 

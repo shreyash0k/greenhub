@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 
 const TIMEZONES = [
   "America/New_York",
@@ -44,10 +44,27 @@ export function SettingsForm({
     type: "success" | "error"
     text: string
   } | null>(null)
+  const [detectedTimezone, setDetectedTimezone] = useState<string | null>(null)
 
   const allTimezones = TIMEZONES.includes(initialTimezone)
     ? TIMEZONES
     : [initialTimezone, ...TIMEZONES]
+
+  useEffect(() => {
+    try {
+      const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone
+      if (
+        browserTz &&
+        TIMEZONES.includes(browserTz) &&
+        browserTz !== initialTimezone &&
+        initialTimezone === "America/New_York"
+      ) {
+        setDetectedTimezone(browserTz)
+      }
+    } catch {
+      // Intl API not available
+    }
+  }, [initialTimezone])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -104,6 +121,24 @@ export function SettingsForm({
             </option>
           ))}
         </select>
+        {detectedTimezone && detectedTimezone !== timezone && (
+          <div className="mt-2 flex items-center gap-2 text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+            <span>
+              We detected your timezone is{" "}
+              <strong>{detectedTimezone.replace(/_/g, " ")}</strong>.
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setTimezone(detectedTimezone)
+                setDetectedTimezone(null)
+              }}
+              className="text-blue-600 hover:text-blue-800 font-medium underline"
+            >
+              Use it
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
