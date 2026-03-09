@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server"
+import { type NextRequest, NextResponse } from "next/server"
 import { processAllDueUsers } from "@/lib/services/notification.service"
 
-export async function POST(request: Request) {
+async function handleCronNotify(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
   if (!cronSecret) {
     console.error("CRON_SECRET environment variable is not set")
@@ -13,8 +13,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const skipTimeCheck =
+    request.nextUrl.searchParams.get("skipTimeCheck") !== "false"
+
   try {
-    const result = await processAllDueUsers({ skipTimeCheck: true })
+    const result = await processAllDueUsers({ skipTimeCheck })
     return NextResponse.json(result)
   } catch (error) {
     console.error("Cron notify error:", error)
@@ -24,3 +27,5 @@ export async function POST(request: Request) {
     )
   }
 }
+
+export { handleCronNotify as GET, handleCronNotify as POST }

@@ -21,7 +21,9 @@ GreenHub is a **multi-user web application** built with Next.js that monitors Gi
 
 - **Web app**: Next.js handles the UI, API routes, and auth
 - **Scheduling**: Two supported modes:
-  1. **Vercel Cron** hits `POST /api/cron/notify` once daily at 2 AM UTC (Hobby plan limit; uses `skipTimeCheck` to check all enabled users)
+  1. **Vercel Cron** hits `GET /api/cron/notify` on a schedule configured in `vercel.json`. Supports a `skipTimeCheck` query parameter (`true` by default; set to `false` to respect user reminder times).
+     - **Pro plan** (recommended): hourly (`0 * * * *`) with `?skipTimeCheck=false` — respects each user's configured reminder times
+     - **Hobby plan**: daily (`0 2 * * *`) with `?skipTimeCheck=true` — checks all enabled users once per day regardless of their reminder times (Hobby limits cron to once/day)
   2. **Standalone worker** (`src/worker/cron.ts`) runs `node-cron` every 30 minutes with exact hour-matching
 - **Deployment**: Vercel (production at `greenhub-eosin.vercel.app`)
 
@@ -113,10 +115,10 @@ const dayStartUtc = fromZonedTime(new Date(Date.UTC(y, m - 1, d, 0, 0, 0, 0)), t
 
 Two execution modes with different time-matching behavior:
 
-**Vercel Cron (daily at 2 AM UTC)**:
-1. Calls `processAllDueUsers({ skipTimeCheck: true })`
-2. Skips hour-matching — checks all users with `reminderEnabled: true`
-3. `hasNotificationToday()` prevents duplicate notifications within the same day
+**Vercel Cron** (configured via `vercel.json` and `?skipTimeCheck` query param):
+- The cron endpoint accepts both GET and POST, and reads `skipTimeCheck` from the query string (defaults to `true`).
+- **Pro plan** (`0 * * * *`, `?skipTimeCheck=false`): runs hourly; `isReminderDue()` ensures only users whose current hour matches a configured reminder time are processed. `hasNotificationToday()` prevents duplicate notifications.
+- **Hobby plan** (`0 2 * * *`, `?skipTimeCheck=true`): runs once daily at 2 AM UTC; skips hour-matching and checks all users with `reminderEnabled: true`. Note: this means users receive reminders at 2 AM UTC regardless of their configured `reminderTimes`.
 
 **Standalone Worker (every 30 minutes)**:
 1. Calls `processAllDueUsers()` (default `skipTimeCheck: false`)
