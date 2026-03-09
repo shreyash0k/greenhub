@@ -64,7 +64,9 @@ export async function checkAndNotifyUser(
   }
 }
 
-export async function processAllDueUsers(): Promise<{
+export async function processAllDueUsers(options?: {
+  skipTimeCheck?: boolean
+}): Promise<{
   processed: number
   notified: number
 }> {
@@ -82,7 +84,8 @@ export async function processAllDueUsers(): Promise<{
   let notified = 0
 
   for (const user of users) {
-    if (!isReminderDue(user.timezone, user.reminderTimes)) continue
+    if (!options?.skipTimeCheck && !isReminderDue(user.timezone, user.reminderTimes))
+      continue
 
     const alreadySent = await hasNotificationToday(user.id, user.timezone)
     if (alreadySent) continue

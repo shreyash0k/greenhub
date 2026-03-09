@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await processAllDueUsers()
+    const result = await processAllDueUsers({ skipTimeCheck: true })
     return NextResponse.json(result)
   } catch (error) {
     console.error("Cron notify error:", error)
