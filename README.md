@@ -1,138 +1,127 @@
-# GreenHub - GitHub Contribution Reminder
+# GreenHub
 
-> **AI Assistants**: See [agents.md](agents.md) for project context, architecture details, and common questions.
-
-Never break your GitHub contribution streak again! GreenHub sends you email reminder if you haven't made any GitHub contributions for the day.
+A web application that monitors your GitHub contributions and sends email reminders to help you maintain your daily commit streak.
 
 ## Features
 
-- Checks your GitHub contributions daily using the GitHub GraphQL API
-- Only sends reminders if you haven't contributed yet
-- Runs as a background service with scheduled cron jobs
+- **GitHub OAuth** — Sign in with your GitHub account (no tokens to manage)
+- **Automatic monitoring** — Checks your contributions at your configured reminder times
+- **Email reminders** — Sends a friendly email via Resend when you haven't committed today
+- **Per-user settings** — Configure timezone, reminder times, and enable/disable notifications
+- **Dashboard** — See today's contribution status and recent notification history
 
-## Prerequisites
+## Tech Stack
 
-- Node.js 20+ installed
-- A GitHub account
-- A Resend account (for sending emails)
+- **Next.js 15** (App Router)
+- **Auth.js v5** (GitHub OAuth)
+- **Prisma** + **PostgreSQL**
+- **Resend** (email delivery)
+- **Tailwind CSS**
+- **node-cron** (standalone worker option)
 
-## Setup Instructions
+## Getting Started
 
-### 1. Clone and Install
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL database (local or hosted — [Neon](https://neon.tech), [Supabase](https://supabase.com), or [Railway](https://railway.app) all have free tiers)
+- GitHub OAuth App
+- Resend API key
+
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/shreyash0k/greenhub
+git clone <repo-url> greenhub
 cd greenhub
 npm install
 ```
 
-### 2. Create GitHub Personal Access Token
-
-1. Go to [GitHub Settings > Developer settings > Personal access tokens](https://github.com/settings/tokens)
-2. Click "Generate new token (classic)"
-3. Give it a descriptive name like "GreenHub Reminder"
-4. **No scopes are required** (public read access is sufficient)
-5. Click "Generate token" and copy the token
-
-### 3. Create Resend API Key
-
-Resend is an email service
-
-1. Go to [Resend](https://resend.com) and create a free account
-2. Navigate to [API Keys](https://resend.com/api-keys)
-3. Click "Create API Key"
-4. Give it a name like "GreenHub MVP"
-5. Copy the API key (starts with `re_`)
-
-### 4. Configure Environment Variables
+### 2. Set up environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your values
+Edit `.env` with your credentials. See `.env.example` for detailed descriptions.
 
-### 5. Build and Run
+### 3. Create a GitHub OAuth App
 
-#### Development Mode (with auto-reload)
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+2. Click **New OAuth App**
+3. Set **Homepage URL** to `http://localhost:3000`
+4. Set **Authorization callback URL** to `http://localhost:3000/api/auth/callback/github`
+5. Copy the **Client ID** and **Client Secret** into your `.env`
+
+### 4. Set up the database
+
+```bash
+npx prisma db push
+```
+
+### 5. Run the dev server
 
 ```bash
 npm run dev
 ```
 
-#### Production Mode
+Open [http://localhost:3000](http://localhost:3000) and sign in with GitHub.
+
+## Notification Scheduling
+
+GreenHub supports two scheduling modes:
+
+### Option A: Vercel Cron (serverless)
+
+Deploy to Vercel and cron is configured automatically via `vercel.json`. The endpoint `POST /api/cron/notify` runs every 30 minutes, checking all users whose reminder times are due.
+
+### Option B: Standalone Worker (VPS / Docker / Railway)
+
+Run the worker alongside the Next.js server:
 
 ```bash
-# Build TypeScript to JavaScript
-npm run build
-
-# Start the service
-npm start
+npm run worker
 ```
 
-#### Run as Background Daemon (using PM2)
+The worker uses `node-cron` to check every 30 minutes.
 
-```bash
-# Install PM2 globally
-npm install -g pm2
+## Scripts
 
-# Build the project first
-npm run build
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Build for production |
+| `npm start` | Start production server |
+| `npm run worker` | Start standalone cron worker |
+| `npm run db:push` | Push schema to database (no migration) |
+| `npm run db:migrate` | Create and apply migrations |
+| `npm run db:studio` | Open Prisma Studio |
+| `npm run lint` | Run ESLint |
 
-# Start with PM2
-pm2 start dist/index.js --name greenhub
+## Environment Variables
 
-# View logs
-pm2 logs greenhub
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL connection string |
+| `AUTH_SECRET` | Yes | Random secret for signing sessions |
+| `AUTH_GITHUB_ID` | Yes | GitHub OAuth App client ID |
+| `AUTH_GITHUB_SECRET` | Yes | GitHub OAuth App client secret |
+| `RESEND_API_KEY` | Yes | Resend API key |
+| `EMAIL_FROM` | Yes | Sender email address |
+| `CRON_SECRET` | Yes | Secret for authenticating cron requests |
+| `NODE_ENV` | No | `development` or `production` |
+| `TIMEZONE` | No | Default timezone for the worker |
 
-# Stop the service
-pm2 stop greenhub
+## Deployment
 
-# Restart the service
-pm2 restart greenhub
+### Vercel
 
-# Make it start on system boot
-pm2 startup
-pm2 save
-```
+1. Push to GitHub
+2. Import in Vercel
+3. Add environment variables
+4. Deploy — cron is automatically configured
 
-## How It Works
+### Railway / Self-hosted
 
-1. **Scheduler**: Cron jobs run daily
-2. **GitHub Check**: When triggered, the service queries GitHub's GraphQL API to check if you've made any contributions today
-3. **Notification**: If you haven't contributed, it sends a reminder email
-
-## Customization
-
-### Change Reminder Times
-
-Edit [src/scheduler/cron.ts](src/scheduler/cron.ts:17-18) and modify the `start()` method:
-
-```typescript
-start(): void {
-  this.scheduleReminder('20:00', '8 PM EST');  // First reminder
-  this.scheduleReminder('23:00', '11 PM EST'); // Second reminder
-}
-```
-
-### Change Timezone
-
-Update the `TIMEZONE` environment variable in your `.env` file:
-
-```env
-TIMEZONE=America/Los_Angeles  # Pacific Time
-```
-
-Valid timezone values follow the IANA timezone database (e.g., `America/New_York`, `Europe/London`, `Asia/Tokyo`).
-
-### Customize Email Template
-
-Edit the `generateEmailTemplate()` method in [src/services/email.service.ts](src/services/email.service.ts:66).
-
-## Contributing
-
-This is currently a personal project, but suggestions and improvements are welcome!
-
-## License
-
-MIT License - Feel free to use and modify for your own purposes.
+1. Deploy the Next.js app: `npm run build && npm start`
+2. Run the worker as a separate process: `npm run worker`
+3. Both processes need access to the same database and environment variables

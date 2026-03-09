@@ -4,292 +4,227 @@
 
 ## Project Overview
 
-GreenHub is a **scheduled batch service** (not a continuously polling app) that monitors GitHub contributions and sends email reminders to help users maintain their daily commit streaks.
+GreenHub is a **multi-user web application** built with Next.js that monitors GitHub contributions and sends email reminders to help users maintain their daily commit streaks. Users sign in with GitHub OAuth and configure their own reminder preferences.
 
 ## Architecture Summary
 
+### Stack
+
+- **Framework**: Next.js 15 (App Router)
+- **Auth**: Auth.js v5 (next-auth) with GitHub OAuth provider
+- **Database**: PostgreSQL via Prisma ORM
+- **Email**: Resend API
+- **Styling**: Tailwind CSS
+- **Scheduler**: Vercel Cron or standalone `node-cron` worker
+
 ### Execution Model
 
-- **NOT a one-shot script** - runs as a persistent background process
-- **NOT continuously polling** - only executes at scheduled cron times
-- Uses `node-cron` for scheduling (pure Node.js, no system cron required)
-- **Requires deployment as a daemon** (PM2, Docker, systemd, or similar)
-
-### Scheduled Times
-
-Three daily checks at (configurable in `src/scheduler/cron.ts`)
-All times are in the user's configured timezone (default: America/New_York).
+- **Web app**: Next.js handles the UI, API routes, and auth
+- **Scheduling**: Two supported modes:
+  1. **Vercel Cron** hits `POST /api/cron/notify` every 30 minutes (serverless)
+  2. **Standalone worker** (`src/worker/cron.ts`) runs `node-cron` in a persistent process
 
 ### Core Services
 
-| Service                 | File                                   | Purpose                                               |
-| ----------------------- | -------------------------------------- | ----------------------------------------------------- |
-| **ReminderScheduler**   | `src/scheduler/cron.ts`                | Manages cron jobs, triggers checks at scheduled times |
-| **NotificationService** | `src/services/notification.service.ts` | Orchestrates the check-and-notify flow                |
-| **GitHubService**       | `src/services/github.service.ts`       | Queries GitHub GraphQL API for contributions          |
-| **EmailService**        | `src/services/email.service.ts`        | Sends HTML emails via Resend API                      |
+| Service | File | Purpose |
+| ----------------------- | ------------------------------------------- | --------------------------------------------------- |
+| **GitHub Service** | `src/lib/services/github.service.ts` | Queries GitHub GraphQL API for contributions |
+| **Email Service** | `src/lib/services/email.service.ts` | Sends HTML emails via Resend API |
+| **Notification Service** | `src/lib/services/notification.service.ts` | Orchestrates check-and-notify flow for all users |
+| **Auth Config** | `src/lib/auth.ts` | NextAuth config with GitHub provider + Prisma adapter |
+| **Prisma Client** | `src/lib/prisma.ts` | Singleton Prisma client instance |
 
 ### Data Flow
 
 ```
-Cron Trigger → NotificationService.checkAndNotify()
-                    ↓
-              GitHubService.hasContributionToday()
-                    ↓ (if no contributions)
-              EmailService.sendReminder()
-                    ↓
-              HTML email sent via Resend
+Cron Trigger (Vercel Cron or node-cron worker)
+ ↓
+processAllDueUsers()
+ ↓ (for each user where reminder time is due)
+checkAndNotifyUser(user)
+ ↓
+hasContributionToday(token, username, timezone)  ← GitHub GraphQL API
+ ↓ (if no contributions)
+sendReminder(email, username)  ← Resend API
+ ↓
+NotificationLog entry created in database
 ```
 
 ## Key Technical Details
 
-### GitHub API
+### Authentication
 
-- Uses **GraphQL API** via `@octokit/graphql`
-- Requires Personal Access Token (no scopes needed for public data)
-- Rate limit: 5000 requests/hour (authenticated)
+- Uses **GitHub OAuth** via Auth.js v5
+- User's GitHub OAuth access token stored in the `Account` table
+- Token is used to query the GitHub GraphQL API for contribution data
+- GitHub username is captured on every sign-in via the `signIn` event
+- Middleware protects `/dashboard` and `/settings` routes
 
-### Email System
+### Database Schema
 
-- Uses **Resend** (modern email API, not SMTP)
-- Free tier: 3,000 emails/month, 100/day
-- Test sender: `onboarding@resend.dev` (works without domain verification)
+- **User** — profile + settings (timezone, reminderEnabled, reminderTimes)
+- **Account** — OAuth tokens (managed by Auth.js Prisma adapter)
+- **Session** — active sessions (managed by Auth.js)
+- **NotificationLog** — tracks each check (contribution status + email sent)
 
-### Timezone Handling
+### Services Architecture
 
-- Uses `date-fns-tz` for timezone-aware date calculations
-- "Today" is calculated based on user's configured timezone
-- Cron jobs respect the timezone setting
+Services are implemented as **pure functions** (not classes) for better tree-shaking and Next.js compatibility:
+
+```typescript
+// Function-based instead of class-based
+export async function hasContributionToday(token, username, timezone): Promise<boolean>
+export async function sendReminder(to, githubUsername): Promise<boolean>
+export async function processAllDueUsers(): Promise<{ processed, notified }>
+```
+
+Services use **relative imports** for portability between Next.js and the standalone worker.
+
+### Reminder Scheduling Logic
+
+1. Cron runs every 30 minutes
+2. For each user with `reminderEnabled: true`:
+   - Check if current hour in user's timezone matches any `reminderTimes` hour
+   - Check if a `NotificationLog` entry already exists for today (prevents duplicates)
+   - If due and not already notified: check GitHub contributions and send email if needed
 
 ## File Structure
 
 ```
 greenhub/
+├── prisma/
+│   └── schema.prisma              # Database schema
 ├── src/
-│   ├── index.ts                    # Application entry point
-│   ├── config.ts                   # Environment variable loading
-│   ├── services/
-│   │   ├── github.service.ts       # GitHub GraphQL API integration
-│   │   ├── email.service.ts        # Email sending with Resend
-│   │   └── notification.service.ts # Orchestration logic
-│   ├── scheduler/
-│   │   └── cron.ts                 # Cron job scheduling
-│   ├── utils/
-│   │   └── logger.ts               # Winston logger configuration
+│   ├── app/
+│   │   ├── globals.css            # Tailwind imports
+│   │   ├── layout.tsx             # Root layout with providers
+│   │   ├── page.tsx               # Landing page
+│   │   ├── dashboard/
+│   │   │   └── page.tsx           # User dashboard
+│   │   ├── settings/
+│   │   │   └── page.tsx           # User settings
+│   │   └── api/
+│   │       ├── auth/[...nextauth]/
+│   │       │   └── route.ts       # Auth.js route handler
+│   │       ├── cron/notify/
+│   │       │   └── route.ts       # Cron endpoint for batch notifications
+│   │       └── settings/
+│   │           └── route.ts       # PATCH endpoint for user settings
+│   ├── components/
+│   │   ├── providers.tsx          # SessionProvider wrapper
+│   │   ├── navbar.tsx             # Navigation bar
+│   │   ├── dashboard/
+│   │   │   ├── contribution-status.tsx
+│   │   │   └── notification-history.tsx
+│   │   └── settings/
+│   │       └── settings-form.tsx  # Client component for settings
+│   ├── lib/
+│   │   ├── auth.ts                # Auth.js configuration
+│   │   ├── prisma.ts              # Prisma client singleton
+│   │   └── services/
+│   │       ├── github.service.ts  # GitHub GraphQL API
+│   │       ├── email.service.ts   # Email via Resend
+│   │       └── notification.service.ts  # Orchestration + batch processing
 │   ├── types/
-│   │   └── index.ts                # TypeScript type definitions
-│   └── test-now.ts                 # Manual trigger for testing
-├── .env                            # Your secrets (gitignored)
-├── .env.example                    # Template for environment variables
-├── package.json
+│   │   └── next-auth.d.ts         # Session type augmentation
+│   ├── worker/
+│   │   └── cron.ts                # Standalone node-cron worker
+│   └── middleware.ts              # Auth middleware for protected routes
+├── .env.example
+├── next.config.ts
+├── tailwind.config.ts
+├── postcss.config.mjs
 ├── tsconfig.json
+├── vercel.json                    # Vercel cron configuration
+├── package.json
 └── README.md
 ```
 
 ## Environment Variables
 
-| Variable          | Required | Description                        | Example                            |
-| ----------------- | -------- | ---------------------------------- | ---------------------------------- |
-| `GITHUB_TOKEN`    | Yes      | GitHub Personal Access Token       | `ghp_abc123...`                    |
-| `GITHUB_USERNAME` | Yes      | Your GitHub username               | `octocat`                          |
-| `RESEND_API_KEY`  | Yes      | Resend API key                     | `re_abc123...`                     |
-| `EMAIL_FROM`      | Yes      | Sender email address               | `GreenHub <onboarding@resend.dev>` |
-| `EMAIL_TO`        | Yes      | Email address to receive reminders | `you@gmail.com`                    |
-| `TIMEZONE`        | No       | IANA timezone for scheduling       | `America/New_York`                 |
-| `NODE_ENV`        | No       | Environment mode                   | `production` or `development`      |
-| `LOG_LEVEL`       | No       | Logging verbosity                  | `info`, `debug`, `error`           |
+| Variable | Required | Description | Example |
+| ------------------- | -------- | ----------------------------------------- | ----------------------------------------- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/greenhub` |
+| `AUTH_SECRET` | Yes | Random secret for session signing | `openssl rand -base64 32` |
+| `AUTH_GITHUB_ID` | Yes | GitHub OAuth App client ID | `Iv1.abc123...` |
+| `AUTH_GITHUB_SECRET` | Yes | GitHub OAuth App client secret | `abc123...` |
+| `RESEND_API_KEY` | Yes | Resend API key | `re_abc123...` |
+| `EMAIL_FROM` | Yes | Sender email address | `GreenHub <onboarding@resend.dev>` |
+| `CRON_SECRET` | Yes | Bearer token for cron endpoint auth | Any random string |
+| `NODE_ENV` | No | Environment mode | `production` or `development` |
+| `TIMEZONE` | No | Default timezone for worker | `America/New_York` |
 
 ## AI Agent Guidelines
 
-### Error Handling Pattern
+### Code Style Conventions
 
-Always follow this pattern when handling errors:
+- **File naming**: `*.service.ts` for services, `*.tsx` for components
+- **Services**: Pure exported functions (not classes)
+- **Components**: Named exports, function components
+- **Imports**: `@/` alias for `src/` in app code; relative imports in `lib/services/` for worker compatibility
+- **Server vs Client**: Default to server components; add `"use client"` only when needed (forms, state, effects)
+
+### Error Handling Pattern
 
 ```typescript
 try {
-  // Operation
-  logger.info('Success message', { contextData });
+  const result = await someOperation()
+  return { success: true, data: result }
 } catch (error) {
-  logger.error('Error message', {
-    error: error instanceof Error ? error.message : 'Unknown error',
-    stack: error instanceof Error ? error.stack : undefined,
-  });
-  // Handle or rethrow
+  console.error("Context for the error:", error)
+  return { success: false, error: "Human-readable message" }
 }
 ```
 
-### Code Style Conventions
-
-- **File naming**: `*.service.ts` for services, `*.ts` for other modules
-- **Class naming**: PascalCase with descriptive names (e.g., `GitHubService`)
-- **Method naming**: camelCase with verb prefixes (e.g., `hasContributionToday()`)
-- **Constants**: UPPER_SNAKE_CASE for constants (e.g., `CACHE_TTL`)
-- **Private members**: Prefix with `private` keyword (e.g., `private cache`)
-- **ES Modules**: Always use `.js` extension in imports (TypeScript requirement for ES modules)
-- **Structured Logging**: Always include context objects with log statements:
-  ```typescript
-  logger.info('Message', { username, action, result });
-  ```
-
 ### Anti-Patterns to Avoid
 
-- **Don't**: Hard-code configuration values
-  **Do**: Use environment variables and validate them at startup
+- **Don't**: Import from `@/` paths in `src/lib/services/` (breaks the standalone worker)
+  **Do**: Use relative imports in service files
 
-- **Don't**: Catch and suppress errors silently
-  **Do**: Log errors with full context and rethrow if appropriate
+- **Don't**: Read `process.env` at module scope in services
+  **Do**: Use lazy initialization (see `email.service.ts` pattern)
 
-- **Don't**: Create circular dependencies between services
-  **Do**: Use dependency injection and clear hierarchy
+- **Don't**: Use class-based services
+  **Do**: Export plain async functions
 
-- **Don't**: Use `any` types
-  **Do**: Create proper types in `./types/` or use library types
+- **Don't**: Skip the `CRON_SECRET` check in the cron endpoint
+  **Do**: Always verify the Bearer token
 
 ## Common Tasks for AI Agents
 
-### Adding a New Service
+### Adding a New Notification Channel
 
-Example: Adding a SMSService for text message reminders
+1. Create `src/lib/services/sms.service.ts` with an exported `sendSMS()` function
+2. Call it from `checkAndNotifyUser()` in `notification.service.ts`
+3. Add user preference fields to the Prisma schema (e.g., `phoneNumber`, `smsEnabled`)
+4. Add UI controls in the settings form
+5. Run `npx prisma migrate dev` to update the database
 
-1. Create `src/services/sms.service.ts`:
+### Adding a New Settings Field
 
-   ```typescript
-   import { logger } from '../utils/logger.js';
+1. Add the field to the `User` model in `prisma/schema.prisma`
+2. Run `npx prisma migrate dev`
+3. Add the field to `PATCH /api/settings` in `src/app/api/settings/route.ts`
+4. Add the UI control in `src/components/settings/settings-form.tsx`
+5. Pass the initial value from the settings page (`src/app/settings/page.tsx`)
 
-   export class SMSService {
-     constructor(private config: { apiKey: string; phoneNumber: string }) {}
+### Modifying the Cron Logic
 
-     async sendSMS(to: string, message: string): Promise<boolean> {
-       try {
-         // Implementation
-         logger.info('SMS sent', { to });
-         return true;
-       } catch (error) {
-         logger.error('SMS failed', { to, error });
-         return false;
-       }
-     }
-   }
-   ```
-
-2. Add configuration validation in `src/index.ts`:
-
-   ```typescript
-   const required = [
-     // ... existing
-     'SMS_API_KEY',
-     'SMS_PHONE_NUMBER',
-   ];
-   ```
-
-3. Initialize in `main()`:
-
-   ```typescript
-   const smsService = new SMSService({
-     apiKey: process.env.SMS_API_KEY!,
-     phoneNumber: process.env.SMS_PHONE_NUMBER!,
-   });
-   ```
-
-4. Use in NotificationService (modify constructor and methods)
-
-5. Update `README.md` with new environment variables
-
-### Modifying the Entry Point (index.ts)
-
-**When to modify**:
-
-- Adding new services
-- Changing configuration validation
-- Adding new environment variables
-- Modifying shutdown behavior
-
-**Best practices**:
-
-- Keep `main()` function clean and readable
-- Extract complex logic into separate functions
-- Always validate new environment variables
-- Test graceful shutdown with new services
-
-## Testing Considerations
-
-### Unit Testing Strategy
-
-1. **Services**: Test each service in isolation with mocked dependencies
-
-   ```typescript
-   const mockGitHubService = { hasContributionToday: jest.fn() };
-   const mockEmailService = { sendReminder: jest.fn() };
-   const notificationService = new NotificationService(mockGitHubService, mockEmailService, config);
-   ```
-
-2. **Entry Point**: Test configuration validation separately
-   ```typescript
-   describe('validateConfig', () => {
-     it('should throw when GITHUB_TOKEN is missing', () => {
-       delete process.env.GITHUB_TOKEN;
-       expect(() => validateConfig()).toThrow();
-     });
-   });
-   ```
-
-### Integration Testing
-
-1. **Full Flow**: Test the complete check-and-notify flow with test credentials
-2. **Scheduler**: Adjust cron times to trigger immediately for testing
-3. **Email**: Use a test email account or email testing service (Mailtrap, etc.)
-
-### Manual Testing
-
-Run the test utility to trigger an immediate check:
-
-```bash
-npx tsx src/test-now.ts
-```
-
-## Common Questions
-
-### Q: Does this need to run 24/7?
-
-**Yes**, the process must stay running for cron jobs to trigger. Deploy using:
-
-- PM2 (recommended): `pm2 start dist/index.js --name greenhub`
-- Docker container
-- systemd service
-- Or any process manager that keeps Node.js running
-
-### Q: Can I run this as a one-time check?
-
-Yes, use the test utility: `npx tsx src/test-now.ts`
-
-### Q: Why isn't it sending emails?
-
-1. Check Resend API key is valid
-2. Check EMAIL_TO is correct
-3. Check logs for errors
-4. Verify GitHub username exists
-
-### Q: How do I change reminder times?
-
-Edit `src/scheduler/cron.ts` in the `start()` method.
+The cron logic lives in `src/lib/services/notification.service.ts`:
+- `processAllDueUsers()` — entry point, queries and filters users
+- `isReminderDue()` — checks if current time matches reminder times
+- `hasNotificationToday()` — prevents duplicate notifications
+- `checkAndNotifyUser()` — checks contributions and sends email
 
 ## Development Commands
 
 ```bash
-npm run dev      # Development with auto-reload (tsx watch)
-npm run build    # Compile TypeScript to dist/
-npm start        # Run compiled JS from dist/
-npx tsx src/test-now.ts  # Test the full flow immediately
+npm run dev          # Development server with hot reload
+npm run build        # Production build
+npm start            # Start production server
+npm run worker       # Start standalone cron worker
+npm run db:push      # Push schema changes (no migration files)
+npm run db:migrate   # Create and run migrations
+npm run db:studio    # Open Prisma Studio GUI
+npm run lint         # Run ESLint
 ```
-
-## Future Considerations (Phase 2)
-
-When migrating to a web app:
-
-1. **Extract Services**: Move services to a shared package (`packages/shared/`)
-2. **Make Config Injectable**: Instead of reading from `process.env` directly, accept config objects
-3. **Add User Context**: Services should accept user object instead of global config
-4. **Database Integration**: Add Prisma client and models
-5. **Queue System**: Replace direct calls with BullMQ jobs
-
-**Migration Strategy**: Keep this MVP code as-is, create new services that wrap/extend these for multi-user support.

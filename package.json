@@ -1,39 +1,45 @@
 {
   "name": "greenhub",
-  "version": "1.0.0",
-  "description": "GitHub contribution reminder system to help maintain daily commit streaks",
-  "main": "dist/index.js",
-  "type": "module",
+  "version": "2.0.0",
+  "private": true,
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "lint": "eslint src/",
-    "format": "prettier --write src/"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "worker": "tsx src/worker/cron.ts",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:studio": "prisma studio",
+    "postinstall": "prisma generate"
   },
-  "keywords": [
-    "github",
-    "contributions",
-    "reminder",
-    "productivity"
-  ],
-  "author": "",
-  "license": "MIT",
   "dependencies": {
+    "@auth/prisma-adapter": "^2.7.4",
     "@octokit/graphql": "^9.0.3",
+    "@prisma/client": "^6.4.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
+    "next": "^15.2.3",
+    "next-auth": "^5.0.0-beta.25",
     "node-cron": "^4.2.1",
-    "resend": "^6.7.0",
-    "winston": "^3.19.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "resend": "^6.7.0"
   },
   "devDependencies": {
-    "@types/node": "^25.0.3",
+    "@types/node": "^22.13.10",
     "@types/node-cron": "^3.0.11",
-    "eslint": "^9.39.2",
-    "prettier": "^3.7.4",
+    "@types/react": "^19.0.12",
+    "@types/react-dom": "^19.0.4",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.22.0",
+    "eslint-config-next": "^15.2.3",
+    "postcss": "^8.5.3",
+    "prisma": "^6.4.1",
+    "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.8.2"
   }
 }

@@ -5,6 +5,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Next.js
+.next/
+out/
+
 # Environment variables
 .env
 .env.local
@@ -25,10 +29,12 @@ logs/
 
 # Claude Code
 .claude/settings.local.json
+
+# OS
+.DS_Store
 *.swp
 *.swo
 *~
-.DS_Store
 
 # Testing
 coverage/
