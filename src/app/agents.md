@@ -48,5 +48,19 @@ export async function PATCH(request: Request) {
 | `/dashboard` | GET | Yes | Contribution status + notification history |
 | `/settings` | GET | Yes | User preferences form |
 | `/api/auth/*` | GET/POST | No | Auth.js OAuth handlers |
-| `/api/settings` | PATCH | Yes | Update user settings |
-| `/api/cron/notify` | POST | CRON_SECRET | Batch notification processing |
+| `/api/settings` | PATCH | Yes | Update user settings (validates timezone, time format, array length) |
+| `/api/cron/notify` | POST | CRON_SECRET | Batch notification processing (uses `skipTimeCheck: true`) |
+
+## API Route Details
+
+### `/api/cron/notify` (POST)
+
+- Returns 500 if `CRON_SECRET` env var is missing (prevents bypass when unset)
+- Calls `processAllDueUsers({ skipTimeCheck: true })` so all enabled users are checked regardless of their reminder hour (required for Vercel Hobby's once-daily cron)
+
+### `/api/settings` (PATCH)
+
+Validates all inputs before writing to the database:
+- `timezone` must be in the `VALID_TIMEZONES` allowlist (18 common timezones)
+- `reminderTimes` entries must match `HH:MM` format (`/^([01]\d|2[0-3]):[0-5]\d$/`)
+- `reminderTimes` array is capped at 5 entries

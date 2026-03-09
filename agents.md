@@ -21,8 +21,9 @@ GreenHub is a **multi-user web application** built with Next.js that monitors Gi
 
 - **Web app**: Next.js handles the UI, API routes, and auth
 - **Scheduling**: Two supported modes:
-  1. **Vercel Cron** hits `POST /api/cron/notify` every 30 minutes (serverless)
-  2. **Standalone worker** (`src/worker/cron.ts`) runs `node-cron` in a persistent process
+  1. **Vercel Cron** hits `POST /api/cron/notify` once daily at 2 AM UTC (Hobby plan limit; uses `skipTimeCheck` to check all enabled users)
+  2. **Standalone worker** (`src/worker/cron.ts`) runs `node-cron` every 30 minutes with exact hour-matching
+- **Deployment**: Vercel (production at `greenhub-eosin.vercel.app`)
 
 ### Core Services
 
@@ -39,8 +40,10 @@ GreenHub is a **multi-user web application** built with Next.js that monitors Gi
 ```
 Cron Trigger (Vercel Cron or node-cron worker)
  ↓
-processAllDueUsers()
- ↓ (for each user where reminder time is due)
+processAllDueUsers({ skipTimeCheck })
+ ↓ (for each user with reminders enabled)
+ ↓ skipTimeCheck=true (Vercel): check all users
+ ↓ skipTimeCheck=false (worker): only users whose reminder hour matches
 checkAndNotifyUser(user)
  ↓
 hasContributionToday(token, username, timezone)  ← GitHub GraphQL API
@@ -75,14 +78,22 @@ Services are implemented as **pure functions** (not classes) for better tree-sha
 // Function-based instead of class-based
 export async function hasContributionToday(token, username, timezone): Promise<boolean>
 export async function sendReminder(to, githubUsername): Promise<boolean>
-export async function processAllDueUsers(): Promise<{ processed, notified }>
+export async function processAllDueUsers(options?: { skipTimeCheck?: boolean }): Promise<{ processed, notified }>
 ```
 
 Services use **relative imports** for portability between Next.js and the standalone worker.
 
 ### Reminder Scheduling Logic
 
-1. Cron runs every 30 minutes
+Two execution modes with different time-matching behavior:
+
+**Vercel Cron (daily at 2 AM UTC)**:
+1. Calls `processAllDueUsers({ skipTimeCheck: true })`
+2. Skips hour-matching — checks all users with `reminderEnabled: true`
+3. `hasNotificationToday()` prevents duplicate notifications within the same day
+
+**Standalone Worker (every 30 minutes)**:
+1. Calls `processAllDueUsers()` (default `skipTimeCheck: false`)
 2. For each user with `reminderEnabled: true`:
    - Check if current hour in user's timezone matches any `reminderTimes` hour
    - Check if a `NotificationLog` entry already exists for today (prevents duplicates)
@@ -151,8 +162,11 @@ greenhub/
 | `RESEND_API_KEY` | Yes | Resend API key | `re_abc123...` |
 | `EMAIL_FROM` | Yes | Sender email address | `GreenHub <onboarding@resend.dev>` |
 | `CRON_SECRET` | Yes | Bearer token for cron endpoint auth | Any random string |
+| `AUTH_TRUST_HOST` | Yes* | Set `true` when behind a proxy/CDN (Vercel, Cloudflare) | `true` |
 | `NODE_ENV` | No | Environment mode | `production` or `development` |
 | `TIMEZONE` | No | Default timezone for worker | `America/New_York` |
+
+*Required for production deployments behind a reverse proxy.
 
 ## AI Agent Guidelines
 
@@ -188,7 +202,10 @@ try {
   **Do**: Export plain async functions
 
 - **Don't**: Skip the `CRON_SECRET` check in the cron endpoint
-  **Do**: Always verify the Bearer token
+  **Do**: Always verify the Bearer token; fail with 500 if `CRON_SECRET` is unset
+
+- **Don't**: Accept arbitrary strings for timezone or reminderTimes in the settings API
+  **Do**: Validate timezone against `VALID_TIMEZONES`, enforce `HH:MM` format, cap array length
 
 ## Common Tasks for AI Agents
 
@@ -211,8 +228,8 @@ try {
 ### Modifying the Cron Logic
 
 The cron logic lives in `src/lib/services/notification.service.ts`:
-- `processAllDueUsers()` — entry point, queries and filters users
-- `isReminderDue()` — checks if current time matches reminder times
+- `processAllDueUsers(options?)` — entry point; `skipTimeCheck: true` bypasses hour-matching (used by Vercel cron)
+- `isReminderDue()` — checks if current hour in user's timezone matches a reminder time (used by standalone worker)
 - `hasNotificationToday()` — prevents duplicate notifications
 - `checkAndNotifyUser()` — checks contributions and sends email
 
